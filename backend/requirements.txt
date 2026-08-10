@@ -1,0 +1,39 @@
+# ── Web Framework ──────────────────────────
+fastapi>=0.115.0,<1.0.0
+uvicorn[standard]>=0.32.0
+python-multipart>=0.0.18
+sse-starlette>=2.1.0
+
+# ── LangChain / LangGraph ──────────────────
+langchain>=0.3.0
+langchain-core>=0.3.0
+langgraph>=0.2.0
+langchain-community>=0.3.0
+langchain-openai>=0.2.0
+langchain-ollama>=0.2.0
+
+# ── Vector DB ──────────────────────────────
+pymilvus>=2.5.0
+
+# ── Document Processing ────────────────────
+python-docx>=1.1.0
+openpyxl>=3.1.0
+csvkit>=2.0.0
+markdown>=3.7
+
+# ── BM25 ───────────────────────────────────
+rank-bm25>=0.2.2
+
+# ── HTTP / API ─────────────────────────────
+httpx>=0.28.0
+openai>=1.58.0
+
+# ── Evaluation ─────────────────────────────
+ragas>=0.2.0
+
+# ── Utilities ──────────────────────────────
+pydantic>=2.10.0
+pydantic-settings>=2.6.0
+python-dotenv>=1.0.0
+uuid7>=0.1.0
+aiofiles>=24.0.0
