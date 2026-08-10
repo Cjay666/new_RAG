@@ -28,16 +28,23 @@ async def ingest_document(
     kb_id: str,
     chunk_size: int = 600,
     chunk_overlap: int = 120,
+    progress_callback=None,
 ) -> dict:
-    """Full document ingestion pipeline.
+    """Full document ingestion pipeline with progress reporting.
 
-    Returns:
-        dict: {doc_id, chunk_count, status}
+    progress_callback(status, progress_pct) called at each stage.
     """
+
+    async def _report(status: str, pct: int):
+        if progress_callback:
+            await progress_callback(status, pct)
+
     doc_id = str(uuid.uuid4())[:12]
+    await _report("parsing", 10)
 
     # Step 1: Load document → Markdown
     markdown_text = await load_document(file_path, original_filename)
+    await _report("chunking", 30)
 
     # Step 2: Chunk
     chunks = chunk_document(
@@ -67,8 +74,22 @@ async def ingest_document(
         for c in chunks
     ]
 
-    # Step 4: Embed + Index into Milvus & BM25
+    total = len(chunk_dicts)
+    await _report("embedding", 40)
+
+    # Step 4: Embed in batches, report progress
+    from .embedding import embed_texts
+    texts = [c["chunk_text"] for c in chunk_dicts]
+    vectors = await embed_texts(texts)
+
+    for c, v in zip(chunk_dicts, vectors):
+        c["vector"] = v
+
+    await _report("indexing", 85)
+
+    # Step 5: Index into Milvus & BM25
     count = await index_chunks(chunk_dicts)
+    await _report("indexed", 100)
 
     return {
         "doc_id": doc_id,

@@ -2,7 +2,8 @@ FROM node:22-alpine AS build
 
 WORKDIR /app
 COPY package.json package-lock.json* ./
-RUN npm install --frozen-lockfile 2>/dev/null || npm install
+RUN npm config set registry https://registry.npmmirror.com && \
+    npm install --frozen-lockfile 2>/dev/null || npm install
 COPY . .
 RUN npm run build
 
