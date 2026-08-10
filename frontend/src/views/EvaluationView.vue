@@ -71,7 +71,7 @@
             <td>{{ (e.metrics.faithfulness * 100).toFixed(1) }}%</td>
             <td>{{ (e.metrics.answer_relevancy * 100).toFixed(1) }}%</td>
             <td>
-              <button class="btn btn-sm" @click="showDetail(e.eval_id)" style="font-size:12px;">查看详情</button>
+              <button class="btn btn-sm" @click="showDetail(e)" style="font-size:12px;">查看详情</button>
             </td>
           </tr>
         </tbody>
@@ -86,9 +86,7 @@
           <button class="btn btn-sm" @click="detailVisible = false">关闭</button>
         </div>
 
-        <div v-if="detailLoading" style="text-align:center;padding:40px;">加载中...</div>
-
-        <div v-else-if="detailData">
+        <div v-if="detailData">
           <!-- Method info -->
           <div class="card" style="padding:12px;margin-bottom:16px;background:#e6f7ff;border:1px solid #91d5ff;">
             <div style="font-size:12px;">
@@ -175,7 +173,6 @@ const store = useAppStore()
 const showRunEval = ref(false)
 const testQueries = ref('')
 const detailVisible = ref(false)
-const detailLoading = ref(false)
 const detailData = ref(null)
 
 const latest = computed(() => {
@@ -201,17 +198,9 @@ async function runEval() {
   testQueries.value = ''
 }
 
-async function showDetail(evalId) {
+async function showDetail(row) {
   detailVisible.value = true
-  detailLoading.value = true
-  detailData.value = null
-  try {
-    const { data } = await evalAPI.detail(evalId)
-    detailData.value = data
-  } catch (e) {
-    detailData.value = { method: 'error', questions: [], explanation: {} }
-  }
-  detailLoading.value = false
+  detailData.value = row.detail || { method: 'none', questions: [], explanation: {} }
 }
 
 function scoreColor(v) {
