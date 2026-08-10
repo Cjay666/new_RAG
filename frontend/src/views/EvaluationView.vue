@@ -48,7 +48,7 @@
     </div>
 
     <!-- History -->
-    <div v-if="store.evalHistory.length > 1" class="card">
+    <div v-if="store.evalHistory.length" class="card">
       <div class="card-title">评测历史</div>
       <table class="table">
         <thead>
@@ -59,6 +59,7 @@
             <th>上下文召回</th>
             <th>忠实度</th>
             <th>答案相关性</th>
+            <th>操作</th>
           </tr>
         </thead>
         <tbody>
@@ -69,9 +70,91 @@
             <td>{{ (e.metrics.context_recall * 100).toFixed(1) }}%</td>
             <td>{{ (e.metrics.faithfulness * 100).toFixed(1) }}%</td>
             <td>{{ (e.metrics.answer_relevancy * 100).toFixed(1) }}%</td>
+            <td>
+              <button class="btn btn-sm" @click="showDetail(e.eval_id)" style="font-size:12px;">查看详情</button>
+            </td>
           </tr>
         </tbody>
       </table>
+    </div>
+
+    <!-- Detail Modal -->
+    <div v-if="detailVisible" class="modal-overlay" @click.self="detailVisible = false">
+      <div class="modal-content" style="max-width:800px;max-height:85vh;overflow-y:auto;">
+        <div class="flex justify-between items-center mb-16">
+          <h3 style="margin:0;">RAGAS 评测详情</h3>
+          <button class="btn btn-sm" @click="detailVisible = false">关闭</button>
+        </div>
+
+        <div v-if="detailLoading" style="text-align:center;padding:40px;">加载中...</div>
+
+        <div v-else-if="detailData">
+          <!-- Method info -->
+          <div class="card" style="padding:12px;margin-bottom:16px;background:#e6f7ff;border:1px solid #91d5ff;">
+            <div style="font-size:12px;">
+              评测方法: <strong>{{ detailData.method === 'ragas' ? 'RAGAS (LLM-as-Judge)' : '简化启发式' }}</strong>
+              <span v-if="detailData.judge_model"> | 裁判模型: {{ detailData.judge_model }}</span>
+            </div>
+          </div>
+
+          <!-- Metric explanations -->
+          <div class="card-title mb-8">四项指标测评原理</div>
+          <div v-if="detailData.explanation" style="display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-bottom:20px;">
+            <div v-for="(exp, key) in detailData.explanation" :key="key" class="card" style="padding:12px;font-size:12px;">
+              <div style="font-weight:600;margin-bottom:6px;">{{ exp.title }}</div>
+              <div class="text-xs text-muted mb-4">{{ exp.process }}</div>
+              <div style="color:var(--c-text-secondary);line-height:1.6;background:#fafafa;padding:6px 8px;border-radius:3px;">
+                {{ exp.example }}
+              </div>
+            </div>
+          </div>
+
+          <!-- Per-question breakdown -->
+          <div class="card-title mb-8">逐题拆解 ({{ detailData.questions?.length || 0 }} 题)</div>
+          <div v-for="(q, qi) in detailData.questions" :key="qi" class="card" style="padding:14px;margin-bottom:12px;">
+            <div style="font-weight:600;margin-bottom:8px;">#{{ qi + 1 }} {{ q.question }}</div>
+
+            <div style="display:grid;grid-template-columns:repeat(4,1fr);gap:8px;margin-bottom:10px;">
+              <div style="text-align:center;padding:6px;background:#fafafa;border-radius:3px;">
+                <div style="font-size:14px;font-weight:600;" :style="{color: scoreColor(q.scores.faithfulness)}">
+                  {{ (q.scores.faithfulness * 100).toFixed(0) }}%
+                </div>
+                <div class="text-xs text-muted">忠实度</div>
+              </div>
+              <div style="text-align:center;padding:6px;background:#fafafa;border-radius:3px;">
+                <div style="font-size:14px;font-weight:600;" :style="{color: scoreColor(q.scores.answer_relevancy)}">
+                  {{ (q.scores.answer_relevancy * 100).toFixed(0) }}%
+                </div>
+                <div class="text-xs text-muted">相关性</div>
+              </div>
+              <div style="text-align:center;padding:6px;background:#fafafa;border-radius:3px;">
+                <div style="font-size:14px;font-weight:600;" :style="{color: scoreColor(q.scores.context_precision)}">
+                  {{ (q.scores.context_precision * 100).toFixed(0) }}%
+                </div>
+                <div class="text-xs text-muted">精度</div>
+              </div>
+              <div style="text-align:center;padding:6px;background:#fafafa;border-radius:3px;">
+                <div style="font-size:14px;font-weight:600;" :style="{color: scoreColor(q.scores.context_recall)}">
+                  {{ (q.scores.context_recall * 100).toFixed(0) }}%
+                </div>
+                <div class="text-xs text-muted">召回率</div>
+              </div>
+            </div>
+
+            <details style="font-size:12px;">
+              <summary style="cursor:pointer;color:var(--c-accent);">查看回答 & 上下文</summary>
+              <div style="margin-top:8px;padding:8px;background:#f5f5f5;border-radius:3px;">
+                <div style="font-weight:500;margin-bottom:4px;">AI 回答:</div>
+                <div style="color:var(--c-text-secondary);line-height:1.6;margin-bottom:10px;">{{ q.answer }}</div>
+                <div style="font-weight:500;margin-bottom:4px;">召回上下文 ({{ q.contexts?.length || 0 }} 条):</div>
+                <div v-for="(ctx, ci) in q.contexts" :key="ci" style="padding:3px 6px;margin:2px 0;background:#fff;border:1px solid #eee;border-radius:2px;color:var(--c-text-secondary);">
+                  [{{ ci + 1 }}] {{ ctx }}...
+                </div>
+              </div>
+            </details>
+          </div>
+        </div>
+      </div>
     </div>
 
     <!-- Empty -->
@@ -91,6 +174,9 @@ import { evalAPI } from '../api/index.js'
 const store = useAppStore()
 const showRunEval = ref(false)
 const testQueries = ref('')
+const detailVisible = ref(false)
+const detailLoading = ref(false)
+const detailData = ref(null)
 
 const latest = computed(() => {
   if (!store.evalHistory.length) return {}
@@ -115,8 +201,39 @@ async function runEval() {
   testQueries.value = ''
 }
 
+async function showDetail(evalId) {
+  detailVisible.value = true
+  detailLoading.value = true
+  detailData.value = null
+  try {
+    const { data } = await evalAPI.detail(evalId)
+    detailData.value = data
+  } catch (e) {
+    detailData.value = { method: 'error', questions: [], explanation: {} }
+  }
+  detailLoading.value = false
+}
+
+function scoreColor(v) {
+  if (v >= 0.8) return 'var(--c-success)'
+  if (v >= 0.5) return 'var(--c-warning)'
+  return 'var(--c-danger)'
+}
+
 function formatDate(iso) {
   if (!iso) return ''
   return new Date(iso).toLocaleString('zh-CN')
 }
 </script>
+
+<style scoped>
+.modal-overlay {
+  position: fixed; top: 0; left: 0; right: 0; bottom: 0;
+  background: rgba(0,0,0,0.45); z-index: 1000;
+  display: flex; align-items: center; justify-content: center;
+}
+.modal-content {
+  background: #fff; border-radius: 8px; padding: 24px;
+  width: 90%; max-height: 85vh; overflow-y: auto;
+}
+</style>

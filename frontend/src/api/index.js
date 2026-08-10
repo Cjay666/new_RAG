@@ -40,6 +40,7 @@ export const chatAPI = {
 export const evalAPI = {
   run: (data) => api.post('/eval/run', data),
   history: (kbId) => api.get(`/eval/history/${kbId}`),
+  detail: (evalId) => api.get(`/eval/detail/${evalId}`),
   createExperiment: (data) => api.post('/eval/experiment', data),
   listExperiments: (kbId) => api.get(`/eval/experiments/${kbId}`),
 }
