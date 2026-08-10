@@ -41,6 +41,26 @@ _DEHYDRATE_PROMPT = """你是一个查询优化器。你的任务是清理用户
 
 # ── API ──────────────────────────────────────────────────
 
+async def decompose_question(question: str) -> list[str]:
+    """Decompose complex/compound questions into sub-questions.
+
+    - Compound questions (multiple ？): simple split by ？
+    - Complex single questions: LLM-based step_back decomposition
+    """
+    # Detect compound: split by ？/?, keep parts with ≥2 chars
+    parts = []
+    for p in question.replace("?", "？").split("？"):
+        p = p.strip()
+        if p and len(p) >= 2:
+            parts.append(p + "？")
+
+    if len(parts) >= 2:
+        return parts
+
+    # Fall back to LLM-based decomposition
+    return await step_back_decompose(question)
+
+
 async def hyde_generate(question: str) -> str:
     """Generate a hypothetical answer for the question."""
     async with httpx.AsyncClient(timeout=60) as client:

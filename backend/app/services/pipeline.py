@@ -9,7 +9,7 @@ from ..models.schemas import QueryStrategy, SourceChunk
 from .chunker import chunk_document
 from .document_loader import load_document
 from .generator import generate_answer
-from .query_rewriter import dehydrate, hyde_generate, step_back_decompose
+from .query_rewriter import decompose_question, dehydrate, hyde_generate, step_back_decompose
 from .reranker import rerank
 from .retriever import hybrid_retrieve
 from .router import route_query
@@ -116,7 +116,7 @@ async def query_pipeline(
                     strategies_used.append(QueryStrategy.HYDE)
                     trace_rewrites.append({"strategy": "HyDE 假设文档", "query": hyp[:200]})
                 elif strat == "step_back":
-                    subs = await step_back_decompose(question)
+                    subs = await decompose_question(question)
                     queries.extend(subs)
                     strategies_used.append(QueryStrategy.STEP_BACK)
                     for s in subs:

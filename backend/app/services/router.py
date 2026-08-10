@@ -35,14 +35,20 @@ async def route_query(question: str, history: list[str] | None = None) -> list[s
     strategies: list[str] = []
 
     # ── Rule-based pre-checks (no LLM call) ──
-    # Short queries (≤15 chars): always add HyDE — embedding signal too weak otherwise
     clean = question.replace(" ", "").replace("\n", "")
-    if len(clean) <= 15:
-        strategies.append("hyde")
 
-    # Queries with pronouns → need disambiguation
+    # 1. Compound questions (multiple ？) → split into sub-questions
+    q_parts = [p.strip() for p in question.replace("?", "？").split("？") if len(p.strip()) >= 2]
+    if len(q_parts) >= 2:
+        strategies.append("step_back")
+
+    # 2. Pronouns → need disambiguation
     if any(w in question for w in ["他", "她", "它", "那个", "这个", "那里", "这里"]):
         strategies.append("dehydrate")
+
+    # 3. Short queries → HyDE (only if not already a compound question)
+    if len(clean) <= 15 and "step_back" not in strategies:
+        strategies.append("hyde")
 
     # If pre-checks already recommended rewriting, skip LLM router
     if strategies:
