@@ -1,9 +1,9 @@
 <template>
   <div>
     <div class="flex justify-between items-center mb-16">
-      <h2 style="font-size:20px;font-weight:700;">📊 评测面板</h2>
+      <h2 style="font-size:18px;font-weight:600;">评测面板</h2>
       <button class="btn btn-primary btn-sm" @click="showRunEval = true" :disabled="!store.activeKB">
-        ▶ 运行评测
+        运行评测
       </button>
     </div>
 
@@ -36,8 +36,8 @@
           <div class="metric-value" style="color:var(--c-success);">{{ (latest.context_recall * 100).toFixed(1) }}%</div>
           <div class="metric-label">Context Recall<br><span class="text-xs">检索上下文召回率</span></div>
         </div>
-        <div class="metric-card" style="border-top:3px solid var(--c-purple);">
-          <div class="metric-value" style="color:var(--c-purple);">{{ (latest.faithfulness * 100).toFixed(1) }}%</div>
+        <div class="metric-card" style="border-top:3px solid #722ed1;">
+          <div class="metric-value" style="color:#722ed1;">{{ (latest.faithfulness * 100).toFixed(1) }}%</div>
           <div class="metric-label">Faithfulness<br><span class="text-xs">回答忠实度</span></div>
         </div>
         <div class="metric-card" style="border-top:3px solid var(--c-warning);">
@@ -76,9 +76,9 @@
 
     <!-- Empty -->
     <div v-if="!store.evalHistory.length && !showRunEval" class="card" style="text-align:center;padding:40px;">
-      <div style="font-size:48px;margin-bottom:12px;">📊</div>
+      <div style="font-size:36px;margin-bottom:12px;font-weight:300;">评测</div>
       <div>暂无评测数据</div>
-      <div class="text-sm text-muted mt-8">点击"运行评测"，使用测试问题集评估 RAG 系统质量</div>
+      <div class="text-sm text-muted mt-8">点击「运行评测」，使用测试问题集评估 RAG 系统质量</div>
     </div>
   </div>
 </template>

@@ -1,13 +1,13 @@
 <template>
   <div>
     <div class="flex justify-between items-center mb-16">
-      <h2 style="font-size:20px;font-weight:700;">📁 文档 / 知识库管理</h2>
+      <h2 style="font-size:18px;font-weight:600;">文档管理</h2>
       <div class="flex gap-8">
         <button class="btn btn-primary btn-sm" @click="showKBCreate = true" v-if="!store.activeKB">
-          ＋ 新建知识库
+          新建知识库
         </button>
         <label class="btn btn-primary btn-sm" style="cursor:pointer;" v-if="store.activeKB">
-          ＋ 上传文档
+          上传文档
           <input type="file" hidden @change="handleUpload" :accept="acceptFormats" />
         </label>
       </div>
@@ -26,19 +26,22 @@
       </div>
     </div>
 
-    <!-- Processing indicators -->
-    <div v-if="processingDocs.length" class="mb-16">
-      <div v-for="doc in processingDocs" :key="doc.doc_id" class="card" style="padding:14px 16px;">
+    <!-- Uploading / Processing indicators -->
+    <div v-if="activeItems.length" class="mb-16">
+      <div v-for="item in activeItems" :key="item.key" class="upload-item">
         <div class="flex items-center justify-between mb-6">
-          <span style="font-weight:600;font-size:13px;">{{ doc.filename }}</span>
-          <span class="text-sm text-muted">{{ stageLabel(doc.stage) }}</span>
+          <span style="font-weight:500;font-size:13px;">{{ item.filename }}</span>
+          <span class="text-sm text-muted">{{ item.statusLabel }}</span>
         </div>
-        <div style="background:#e5e7eb;border-radius:4px;height:6px;overflow:hidden;">
-          <div :style="{width: (doc.progress || 0) + '%', background: doc.stage === 'error' ? 'var(--c-danger)' : 'var(--c-accent)', height:'100%', transition:'width 0.5s', borderRadius:'4px'}"></div>
+        <div class="bar-track">
+          <div
+            :class="['bar-fill', item.barClass]"
+            :style="{width: item.progress + '%'}"
+          ></div>
         </div>
         <div class="flex justify-between mt-4">
-          <span class="text-xs text-muted">{{ doc.progress || 0 }}%</span>
-          <span v-if="doc.error" class="text-xs" style="color:var(--c-danger);">{{ doc.error }}</span>
+          <span class="text-xs text-muted">{{ item.progress }}%</span>
+          <span v-if="item.error" class="text-xs" style="color:var(--c-danger);">{{ item.error }}</span>
         </div>
       </div>
     </div>
@@ -72,9 +75,9 @@
       </table>
     </div>
 
-    <div v-else-if="store.activeKB && !processingDocs.length" class="card" style="text-align:center;padding:40px;">
-      <div style="font-size:48px;margin-bottom:12px;">📁</div>
-      <div>暂无文档，点击"上传文档"开始</div>
+    <div v-else-if="store.activeKB && !activeItems.length" class="card" style="text-align:center;padding:40px;">
+      <div style="font-size:36px;margin-bottom:12px;font-weight:300;">文档</div>
+      <div>暂无文档，点击「上传文档」开始</div>
       <div class="text-sm text-muted mt-8">支持 PDF、Word、PPT、Excel、TXT、Markdown、CSV、图片</div>
     </div>
   </div>
@@ -89,20 +92,40 @@ const store = useAppStore()
 const showKBCreate = ref(false)
 const newKB = ref({ name: '', desc: '' })
 const acceptFormats = '.pdf,.docx,.doc,.pptx,.ppt,.xlsx,.xls,.txt,.md,.csv,.png,.jpg,.jpeg,.bmp,.tiff'
-const uploadProgress = ref({}) // doc_id → { progress, stage, error }
 
-// Poll progress for processing docs
+// Track items: uploading (before server returns) + processing (server-side progress)
+const uploadItems = ref({})   // key -> { filename, progress, stage, error }
+const processItems = ref({})  // doc_id -> { progress, stage, error }
+
 let pollTimer = null
 
-const processingDocs = computed(() => {
-  return store.documents.filter(d =>
-    d.status !== 'indexed' && d.status !== 'failed'
-  ).map(d => ({
-    ...d,
-    progress: uploadProgress.value[d.doc_id]?.progress || d.progress || 0,
-    stage: uploadProgress.value[d.doc_id]?.stage || d.stage || 'uploaded',
-    error: uploadProgress.value[d.doc_id]?.error || '',
-  }))
+// Merge upload + processing items for display
+const activeItems = computed(() => {
+  const items = []
+  for (const [key, v] of Object.entries(uploadItems.value)) {
+    items.push({
+      key,
+      filename: v.filename,
+      progress: v.progress,
+      stage: v.stage,
+      error: v.error,
+      statusLabel: '上传中...',
+      barClass: 'uploading',
+    })
+  }
+  for (const [docId, v] of Object.entries(processItems.value)) {
+    const doc = store.documents.find(d => d.doc_id === docId)
+    items.push({
+      key: docId,
+      filename: doc?.filename || docId,
+      progress: v.progress,
+      stage: v.stage,
+      error: v.error,
+      statusLabel: stageLabel(v.stage),
+      barClass: v.stage === 'error' ? 'error' : 'processing',
+    })
+  }
+  return items
 })
 
 const doneDocs = computed(() => {
@@ -121,20 +144,22 @@ watch(() => store.activeKB, (kbId) => {
 function startPolling() {
   if (pollTimer) clearInterval(pollTimer)
   pollTimer = setInterval(async () => {
-    // Poll status for non-indexed docs
     for (const d of store.documents) {
       if (d.status === 'indexed' || d.status === 'failed') continue
       try {
-        const { data } = await docAPI.status(d.doc_id, store.activeKB)
-        uploadProgress.value[d.doc_id] = {
+        const { data } = await docAPI.status(d.doc_id)
+        processItems.value[d.doc_id] = {
           progress: data.progress,
           stage: data.stage,
           error: data.error,
         }
-        // Update store doc when done
         if (data.status === 'indexed' || data.status === 'failed') {
           d.status = data.status
           d.chunk_count = data.chunk_count
+          // Remove from processItems after a short delay (let user see 100%)
+          setTimeout(() => {
+            delete processItems.value[d.doc_id]
+          }, 2000)
         }
       } catch (e) { /* ignore */ }
     }
@@ -142,7 +167,10 @@ function startPolling() {
 }
 
 function stageLabel(stage) {
-  const m = { uploaded: '已上传', parsing: '解析中...', chunking: '分块中...', embedding: '向量化中...', indexing: '入库中...', done: '✅ 完成', error: '❌ 失败' }
+  const m = {
+    uploaded: '等待处理', parsing: '解析中...', chunking: '分块中...',
+    embedding: '向量化中...', indexing: '入库中...', done: '完成', error: '失败'
+  }
   return m[stage] || stage
 }
 
@@ -156,17 +184,44 @@ async function createKB() {
 async function handleUpload(e) {
   const file = e.target.files?.[0]
   if (!file) return
-  const result = await store.uploadDocument(file)
-  if (result?.doc_id) {
-    uploadProgress.value[result.doc_id] = { progress: 0, stage: 'uploaded', error: null }
-  }
   e.target.value = ''
+
+  const uploadKey = 'up_' + Date.now()
+
+  // Phase 1: show upload progress during file transfer
+  uploadItems.value[uploadKey] = {
+    filename: file.name,
+    progress: 0,
+    stage: 'uploading',
+    error: null,
+  }
+
+  const onProgress = (evt) => {
+    if (evt.total) {
+      const pct = Math.round((evt.loaded / evt.total) * 100)
+      uploadItems.value[uploadKey].progress = pct
+    }
+  }
+
+  try {
+    const result = await store.uploadDocument(file, onProgress)
+    // Phase 1 complete — remove upload item
+    delete uploadItems.value[uploadKey]
+    // Phase 2: processing progress (polled)
+    if (result?.doc_id) {
+      processItems.value[result.doc_id] = { progress: 0, stage: 'uploaded', error: null }
+    }
+  } catch (err) {
+    uploadItems.value[uploadKey].error = '上传失败: ' + (err.response?.data?.detail || err.message)
+    uploadItems.value[uploadKey].stage = 'error'
+    setTimeout(() => { delete uploadItems.value[uploadKey] }, 5000)
+  }
 }
 
 async function removeDoc(docId) {
   if (confirm('确定删除？所有向量数据也将被删除。')) {
     await store.deleteDocument(docId)
-    delete uploadProgress.value[docId]
+    delete processItems.value[docId]
   }
 }
 
@@ -183,6 +238,7 @@ function statusClass(s) {
   return 'tag tag-info'
 }
 function statusText(s) {
-  return { uploaded: '已上传', parsing: '解析中', chunking: '分块中', embedding: '向量化中', indexed: '✅ 已入库', failed: '❌ 失败' }[s] || s
+  const m = { uploaded: '已上传', parsing: '解析中', chunking: '分块中', embedding: '向量化中', indexed: '已入库', failed: '失败' }
+  return m[s] || s
 }
 </script>

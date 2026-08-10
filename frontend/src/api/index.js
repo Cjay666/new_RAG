@@ -2,7 +2,7 @@ import axios from 'axios'
 
 const api = axios.create({
   baseURL: '/api',
-  timeout: 120000,
+  timeout: 300000,
 })
 
 // ── Knowledge Base ─────────────────────────────────
@@ -14,13 +14,16 @@ export const kbAPI = {
 
 // ── Documents ──────────────────────────────────────
 export const docAPI = {
-  upload: (kbId, file) => {
+  upload: (kbId, file, onProgress) => {
     const form = new FormData()
     form.append('file', file)
-    return api.post(`/documents/upload?kb_id=${kbId}`, form)
+    return api.post(`/documents/upload?kb_id=${kbId}`, form, {
+      headers: { 'Content-Type': 'multipart/form-data' },
+      onUploadProgress: onProgress,
+    })
   },
   list: (kbId) => api.get(`/documents/list/${kbId}`),
-  status: (docId, kbId) => api.get(`/documents/status/${docId}?kb_id=${kbId}`),
+  status: (docId) => api.get(`/documents/status/${docId}`),
   delete: (docId, kbId) => api.delete(`/documents/${docId}?kb_id=${kbId}`),
 }
 

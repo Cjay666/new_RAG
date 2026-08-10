@@ -1,9 +1,9 @@
 <template>
   <div>
     <div class="flex justify-between items-center mb-16">
-      <h2 style="font-size:20px;font-weight:700;">🔬 实验对比</h2>
+      <h2 style="font-size:18px;font-weight:600;">实验对比</h2>
       <button class="btn btn-primary btn-sm" @click="showCreate = true" :disabled="!store.activeKB">
-        ＋ 新建实验
+        新建实验
       </button>
     </div>
 
@@ -13,7 +13,7 @@
       <div class="flex-col gap-8">
         <input v-model="expName" class="input" placeholder="实验名称" />
 
-        <div v-for="(cfg, idx) in configs" :key="idx" class="card" style="padding:12px;background:#f8f9fb;">
+        <div v-for="(cfg, idx) in configs" :key="idx" class="card" style="padding:12px;background:#fafafa;">
           <div style="font-weight:600;margin-bottom:8px;">配置 {{ idx + 1 }}</div>
           <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;">
             <div>
@@ -46,7 +46,7 @@
         </div>
 
         <div class="flex gap-8">
-          <button class="btn btn-sm" @click="addConfig">＋ 添加配置</button>
+          <button class="btn btn-sm" @click="addConfig">添加配置</button>
           <button class="btn btn-primary btn-sm" @click="runExperiment" :disabled="!expName">运行实验</button>
           <button class="btn btn-sm" @click="showCreate = false">取消</button>
         </div>
@@ -78,7 +78,7 @@
               <div class="metric-label">上下文召回</div>
             </div>
             <div class="metric-card" style="padding:12px;">
-              <div class="metric-value" style="font-size:20px;color:var(--c-purple);">{{ (r.metrics.faithfulness * 100).toFixed(1) }}%</div>
+              <div class="metric-value" style="font-size:20px;color:#722ed1;">{{ (r.metrics.faithfulness * 100).toFixed(1) }}%</div>
               <div class="metric-label">忠实度</div>
             </div>
             <div class="metric-card" style="padding:12px;">
@@ -92,7 +92,7 @@
 
     <!-- Empty -->
     <div v-if="!store.experiments.length && !showCreate" class="card" style="text-align:center;padding:40px;">
-      <div style="font-size:48px;margin-bottom:12px;">🔬</div>
+      <div style="font-size:36px;margin-bottom:12px;font-weight:300;">实验</div>
       <div>暂无实验数据</div>
       <div class="text-sm text-muted mt-8">创建对比实验，比较不同配置下的 RAG 系统表现</div>
     </div>

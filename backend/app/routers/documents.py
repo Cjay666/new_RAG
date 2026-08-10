@@ -1,23 +1,63 @@
-"""Document management router — upload, delete, list, with progress tracking."""
+"""Document management router — upload, delete, list, with progress tracking + persistence."""
 
 from __future__ import annotations
 
-import asyncio
+import json
 import os
 import uuid
 from datetime import datetime, timezone
+from pathlib import Path
 
 import aiofiles
 from fastapi import APIRouter, BackgroundTasks, HTTPException, UploadFile
 
-from ..config import ALLOWED_EXTENSIONS, MAX_UPLOAD_SIZE_MB, UPLOAD_DIR
+from ..config import ALLOWED_EXTENSIONS, MAX_UPLOAD_SIZE_MB, PROJECT_ROOT, UPLOAD_DIR
 from ..models.schemas import DocStatus, DocumentResponse, DocumentUploadResponse
 from ..services.pipeline import ingest_document, remove_document
 
 router = APIRouter(prefix="/api/documents", tags=["documents"])
 
-# In-memory document registry with progress tracking
+# Persistence file
+_DATA_FILE = Path(PROJECT_ROOT, "data", "documents.json")
+
+# In-memory document registry
 _docs: dict[str, dict] = {}
+
+
+def _load() -> None:
+    """Load document metadata from JSON file."""
+    if _DATA_FILE.exists():
+        try:
+            with open(_DATA_FILE, "r", encoding="utf-8") as f:
+                data = json.load(f)
+                # Convert status strings back to DocStatus enum
+                for d in data.values():
+                    if isinstance(d.get("status"), str):
+                        try:
+                            d["status"] = DocStatus(d["status"])
+                        except ValueError:
+                            d["status"] = DocStatus.UPLOADED
+                _docs.update(data)
+        except (json.JSONDecodeError, IOError):
+            pass
+
+
+def _save() -> None:
+    """Save document metadata to JSON file."""
+    _DATA_FILE.parent.mkdir(parents=True, exist_ok=True)
+    # Convert DocStatus enum to string for JSON
+    serializable = {}
+    for k, v in _docs.items():
+        d = dict(v)
+        if isinstance(d.get("status"), DocStatus):
+            d["status"] = d["status"].value
+        serializable[k] = d
+    with open(_DATA_FILE, "w", encoding="utf-8") as f:
+        json.dump(serializable, f, ensure_ascii=False, indent=2)
+
+
+# Load on startup
+_load()
 
 
 def _progress_callback_factory(doc_id: str):
@@ -27,13 +67,14 @@ def _progress_callback_factory(doc_id: str):
             "parsing": DocStatus.PARSING,
             "chunking": DocStatus.CHUNKING,
             "embedding": DocStatus.EMBEDDING,
-            "indexing": DocStatus.EMBEDDING,  # same stage
+            "indexing": DocStatus.EMBEDDING,
             "indexed": DocStatus.INDEXED,
         }
         if doc_id in _docs:
             _docs[doc_id]["status"] = status_map.get(status, DocStatus.UPLOADED)
             _docs[doc_id]["progress"] = pct
             _docs[doc_id]["stage"] = status
+            _save()
     return _cb
 
 
@@ -47,11 +88,13 @@ async def _process_document(doc_id: str, file_path, filename: str, kb_id: str):
             _docs[doc_id]["chunk_count"] = result["chunk_count"]
             _docs[doc_id]["progress"] = 100
             _docs[doc_id]["stage"] = "done"
+            _save()
     except Exception as e:
         if doc_id in _docs:
             _docs[doc_id]["status"] = DocStatus.FAILED
             _docs[doc_id]["error"] = str(e)
             _docs[doc_id]["stage"] = "error"
+            _save()
 
 
 @router.post("/upload", response_model=DocumentUploadResponse)
@@ -86,6 +129,7 @@ async def upload_document(kb_id: str, file: UploadFile, bg: BackgroundTasks):
         "error": None,
         "created_at": datetime.now(timezone.utc).isoformat(),
     }
+    _save()
 
     # Schedule background ingestion
     bg.add_task(_process_document, doc_id, file_path, file.filename, kb_id)
@@ -108,12 +152,14 @@ async def delete_document(doc_id: str, kb_id: str):
     for f in UPLOAD_DIR.glob(f"{doc_id}_*"):
         f.unlink()
     del _docs[doc_id]
+    _save()
     return {"ok": True, "deleted_chunks": count}
 
 
 @router.get("/list/{kb_id}", response_model=list[DocumentResponse])
 async def list_documents(kb_id: str):
     """List all documents in a knowledge base."""
+    _load()  # refresh from disk
     return [
         DocumentResponse(
             doc_id=d["doc_id"],
