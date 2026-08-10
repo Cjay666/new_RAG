@@ -48,6 +48,51 @@ def _build_judge():
     return LangchainLLMWrapper(judge_llm)
 
 
+def _build_detail(results: list[dict], method: str, scores_list: list[dict] | None = None) -> dict:
+    """Build per-question detail + metric explanations."""
+    per_q = []
+    for i, r in enumerate(results):
+        scores = scores_list[i] if scores_list else {
+            "faithfulness": 1.0 if (r.get("answer") and "ERROR:" not in r["answer"]) else 0.0,
+            "answer_relevancy": 1.0 if (r.get("answer") and "ERROR:" not in r["answer"]) else 0.0,
+            "context_precision": 1.0 if r.get("contexts") else 0.0,
+            "context_recall": 1.0 if r.get("contexts") else 0.0,
+        }
+        per_q.append({
+            "question": r.get("question", ""),
+            "answer": (r.get("answer") or "")[:500],
+            "contexts": [c[:200] for c in (r.get("contexts") or [])[:5]],
+            "scores": {k: round(float(v), 4) for k, v in scores.items()},
+        })
+    return {
+        "method": method,
+        "judge_model": DEEPSEEK_MODEL if method == "ragas" else None,
+        "questions": per_q,
+        "explanation": {
+            "faithfulness": {
+                "title": "忠实度 (Faithfulness)",
+                "process": "1. LLM 将回答拆解为原子声明 → 2. 逐条判断该声明能否从上下文中推断 → 3. 可推断数/总声明数",
+                "example": "回答「路明非是卡塞尔学院学生」→ 拆分→ 上下文包含「路明非就读于卡塞尔学院」→ ✅ 可推断 → 得分+1",
+            },
+            "answer_relevancy": {
+                "title": "答案相关性 (Answer Relevancy)",
+                "process": "1. LLM 根据回答反推可能的问题 → 2. 反推问题与原问题做 Embedding 余弦相似度 → 3. 多个相似度取平均",
+                "example": "回答「路明非在高天原执行任务」→ 反推「路明非在执行什么任务」→ 相似度 0.85 → 得分高",
+            },
+            "context_precision": {
+                "title": "上下文精度 (Context Precision)",
+                "process": "1. LLM 逐条判断每个召回的 chunk 是否与问题相关 → 2. 相关 chunk 数/总 chunk 数 → 3. 排名越靠前的相关 chunk 权重越高",
+                "example": "召回5个chunk → 其中3个相关 → 且3个都排在前面 → 精度=100%",
+            },
+            "context_recall": {
+                "title": "上下文召回率 (Context Recall)",
+                "process": "1. LLM 从回答中提取关键信息点 → 2. 判断每个信息点能否在召回上下文中找到 → 3. 找到数/总信息点数",
+                "example": "回答含3个关键事实 → 2个在chunk中找到 → 召回率=66.7%",
+            },
+        },
+    }
+
+
 async def _run_ragas(results: list[dict]) -> tuple[EvalMetrics, dict]:
     """Run real RAGAS evaluation using DeepSeek as judge LLM.
 
@@ -58,13 +103,12 @@ async def _run_ragas(results: list[dict]) -> tuple[EvalMetrics, dict]:
         r for r in results
         if r.get("answer") and "ERROR:" not in r["answer"] and r.get("contexts")
     ]
-    empty_detail = {"method": "none", "questions": [], "explanation": {}}
 
     if not valid:
         return (
             EvalMetrics(context_precision=0.0, context_recall=0.0,
                         faithfulness=0.0, answer_relevancy=0.0),
-            empty_detail,
+            _build_detail(results, "heuristic"),
         )
 
     try:
@@ -96,22 +140,16 @@ async def _run_ragas(results: list[dict]) -> tuple[EvalMetrics, dict]:
 
         df = result.to_pandas()
 
-        # ── Build per-question details ──
-        per_q = []
-        for i, r in enumerate(valid):
+        # ── Build per-question scores from RAGAS DataFrame ──
+        scores_list = []
+        for i in range(len(valid)):
             row = df.iloc[i] if i < len(df) else {}
-            q_detail = {
-                "question": r["question"],
-                "answer": r["answer"][:500],
-                "contexts": [c[:200] for c in r["contexts"][:5]],
-                "scores": {
-                    "faithfulness": round(float(row.get("faithfulness", 0)), 4),
-                    "answer_relevancy": round(float(row.get("answer_relevancy", 0)), 4),
-                    "context_precision": round(float(row.get("context_precision", 0)), 4),
-                    "context_recall": round(float(row.get("context_recall", 0)), 4),
-                },
-            }
-            per_q.append(q_detail)
+            scores_list.append({
+                "faithfulness": float(row.get("faithfulness", 0)),
+                "answer_relevancy": float(row.get("answer_relevancy", 0)),
+                "context_precision": float(row.get("context_precision", 0)),
+                "context_recall": float(row.get("context_recall", 0)),
+            })
 
         overall = EvalMetrics(
             context_precision=round(float(df["context_precision"].mean()), 4),
@@ -120,42 +158,13 @@ async def _run_ragas(results: list[dict]) -> tuple[EvalMetrics, dict]:
             answer_relevancy=round(float(df["answer_relevancy"].mean()), 4),
         )
 
-        detail = {
-            "method": "ragas",
-            "judge_model": DEEPSEEK_MODEL,
-            "questions": per_q,
-            "explanation": {
-                "faithfulness": {
-                    "title": "忠实度 (Faithfulness)",
-                    "process": "1. LLM 将回答拆解为原子声明 → 2. 逐条判断该声明能否从上下文中推断 → 3. 可推断数/总声明数",
-                    "example": "回答「路明非是卡塞尔学院学生」→ 拆分→ 上下文包含「路明非就读于卡塞尔学院」→ ✅ 可推断 → 得分+1",
-                },
-                "answer_relevancy": {
-                    "title": "答案相关性 (Answer Relevancy)",
-                    "process": "1. LLM 根据回答反推可能的问题 → 2. 反推问题与原问题做 Embedding 余弦相似度 → 3. 多个相似度取平均",
-                    "example": "回答「路明非在高天原执行任务」→ 反推「路明非在执行什么任务」→ 相似度 0.85 → 得分高",
-                },
-                "context_precision": {
-                    "title": "上下文精度 (Context Precision)",
-                    "process": "1. LLM 逐条判断每个召回的 chunk 是否与问题相关 → 2. 相关 chunk 数/总 chunk 数 → 3. 排名越靠前的相关 chunk 权重越高",
-                    "example": "召回5个chunk → 其中3个相关 → 且3个都排在前面 → 精度=100%",
-                },
-                "context_recall": {
-                    "title": "上下文召回率 (Context Recall)",
-                    "process": "1. LLM 从回答中提取关键信息点 → 2. 判断每个信息点能否在召回上下文中找到 → 3. 找到数/总信息点数",
-                    "example": "回答含3个关键事实 → 2个在chunk中找到 → 召回率=66.7%",
-                },
-            },
-        }
-
-        return overall, detail
+        return overall, _build_detail(valid, "ragas", scores_list)
 
     except ImportError:
         traceback.print_exc()
-        return _fallback_metrics(results), empty_detail
     except Exception:
         traceback.print_exc()
-        return _fallback_metrics(results), empty_detail
+    return _fallback_metrics(results), _build_detail(results, "heuristic")
 
 
 def _fallback_metrics(results: list[dict]) -> EvalMetrics:
