@@ -13,9 +13,22 @@ from .routers import chat, documents, evaluation, knowledge_base
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     """Startup / shutdown lifecycle."""
-    # Initialize Milvus connection
+    import sys
     from .db.milvus_client import connect
     connect()
+
+    # Rebuild BM25 indexes from Milvus (they may have been lost during container rebuild)
+    try:
+        from .services.vector_store import _bm25
+        from .db.milvus_client import get_all_chunks
+        all_chunks = get_all_chunks("")
+        kb_ids = list(dict.fromkeys(c["kb_id"] for c in all_chunks if c.get("kb_id")))
+        for kb_id in kb_ids:
+            n = _bm25.rebuild_all_from_milvus(kb_id)
+            print(f"[Startup] BM25 rebuilt for {kb_id}: {n} chunks", file=sys.stderr, flush=True)
+    except Exception as e:
+        print(f"[Startup] BM25 pre-rebuild skipped: {e}", file=sys.stderr, flush=True)
+
     yield
 
 
@@ -46,3 +59,11 @@ app.include_router(evaluation.router)
 async def health():
     """Health check endpoint."""
     return {"status": "ok", "version": "0.1.0"}
+
+
+@app.post("/api/kb/{kb_id}/bm25-rebuild")
+async def bm25_rebuild(kb_id: str):
+    """Manually rebuild BM25 index from Milvus. Returns chunk count."""
+    from .services.vector_store import rebuild_bm25
+    n = rebuild_bm25(kb_id)
+    return {"kb_id": kb_id, "bm25_chunks": n, "ok": n > 0}
