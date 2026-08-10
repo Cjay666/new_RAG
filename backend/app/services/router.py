@@ -32,6 +32,25 @@ async def route_query(question: str, history: list[str] | None = None) -> list[s
 
     Returns a list of strategy names: ["direct"] | ["dehydrate"] | ["hyde", "step_back"] | etc.
     """
+    strategies: list[str] = []
+
+    # ── Rule-based pre-checks (no LLM call) ──
+    # Short queries (≤15 chars): always add HyDE — embedding signal too weak otherwise
+    clean = question.replace(" ", "").replace("\n", "")
+    if len(clean) <= 15:
+        strategies.append("hyde")
+
+    # Queries with pronouns → need disambiguation
+    if any(w in question for w in ["他", "她", "它", "那个", "这个", "那里", "这里"]):
+        strategies.append("dehydrate")
+
+    # If pre-checks already recommended rewriting, skip LLM router
+    if strategies:
+        # Always keep "direct" as fallback track (prevents HyDE from running off the rails)
+        strategies.insert(0, "direct")
+        return list(dict.fromkeys(strategies))  # dedupe, preserve order
+
+    # ── LLM router (DeepSeek, for edge cases beyond simple rules) ──
     history_str = "\n".join(history[-5:]) if history else "无历史对话"
 
     async with httpx.AsyncClient(timeout=30) as client:
@@ -49,7 +68,6 @@ async def route_query(question: str, history: list[str] | None = None) -> list[s
 
     # Extract JSON from response
     try:
-        # Handle possible markdown code fences
         if "```" in raw:
             raw = raw.split("```")[1]
             if raw.startswith("json"):
@@ -59,7 +77,6 @@ async def route_query(question: str, history: list[str] | None = None) -> list[s
     except (json.JSONDecodeError, KeyError):
         categories = ["direct"]
 
-    # Normalize
     valid = {"direct", "dehydrate", "step_back", "hyde"}
     strategies = [c for c in categories if c in valid]
     if not strategies:
