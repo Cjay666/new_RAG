@@ -51,9 +51,12 @@ class BM25IndexManager:
     # ── Search ────────────────────────────────────────────
 
     def search(self, kb_id: str, query: str, top_n: int = 100) -> list[dict]:
-        """BM25 search. Returns list of chunk dicts with added `bm25_score`."""
+        """BM25 search. Auto-rebuilds from Milvus if index is missing."""
         if kb_id not in self._indexes:
             self._load(kb_id)
+        if kb_id not in self._indexes:
+            # Index lost after Docker rebuild → rebuild from Milvus
+            self._rebuild_from_milvus(kb_id)
         if kb_id not in self._indexes:
             return []
         bm25, chunks = self._indexes[kb_id]
@@ -100,6 +103,19 @@ class BM25IndexManager:
         path = self.data_dir / f"{kb_id}.bm25.pkl"
         if path.exists():
             path.unlink()
+
+    def _rebuild_from_milvus(self, kb_id: str) -> None:
+        """Lazy rebuild: read ALL chunks from Milvus and build BM25 from scratch."""
+        try:
+            from ..db.milvus_client import get_all_chunks
+            all_chunks = get_all_chunks(kb_id)
+            if all_chunks:
+                tokenized = [_tokenize(c["chunk_text"]) for c in all_chunks]
+                bm25 = BM25Okapi(tokenized)
+                self._indexes[kb_id] = (bm25, all_chunks)
+                self._save(kb_id)
+        except Exception:
+            pass  # Silently skip — search will return []
 
 
 # ── Helpers ───────────────────────────────────────────────

@@ -80,7 +80,7 @@ def get_all_chunks(kb_id: str = "") -> list[dict]:
             "id", "doc_id", "kb_id", "doc_name", "header_path",
             "page", "chunk_index", "total_chunks", "parent_id", "chunk_text",
         ],
-        limit=100000,
+        limit=16384,
     )
     return [
         {
