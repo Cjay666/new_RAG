@@ -11,65 +11,52 @@ async def hybrid_retrieve(
     queries: list[str],
     kb_id: str,
     top_k: int = RETRIEVAL_TOP_K,
-) -> list[dict]:
+) -> tuple[list[dict], dict]:
     """Core retrieval: multi-query × hybrid search → RRF fusion → top results.
 
-    Args:
-        queries: Query strings (original + rewritten variants)
-        kb_id: Knowledge base ID
-        top_k: Final candidate count after RRF
-
     Returns:
-        List of chunk dicts with id, chunk_text, doc_name, header_path, page, score (rrf)
+        (candidates, trace) — trace has query_count, dense_total, sparse_total,
+        unique_after_merge for frontend display.
     """
-    # ── Step 1: Coarse recall ───────────────────────────
-    all_candidates: dict[str, dict] = {}
+    rrf: dict[str, float] = {}
+    chunk_map: dict[str, dict] = {}
+    dense_total = 0
+    sparse_total = 0
 
     for query in queries:
         qv = await embed_single(query)
         dense = vector_search(qv, kb_id, top_k=COARSE_RECALL_TOP_N)
         sparse = bm25_search(kb_id, query, top_n=COARSE_RECALL_TOP_N)
-        for r in dense + sparse:
-            cid = r.get("id", "")
-            if cid and cid not in all_candidates:
-                all_candidates[cid] = r
+        dense_total += len(dense)
+        sparse_total += len(sparse)
 
-    candidates = list(all_candidates.values())
-    if not candidates:
-        return []
-
-    # ── Step 2: RRF coarse ranking ──────────────────────
-    rrf_scores = await _compute_rrf(queries, candidates, kb_id)
-    ranked = sorted(rrf_scores.items(), key=lambda x: x[1], reverse=True)
-    top_n = min(COARSE_RERANK_TOP_N, len(ranked))
-    candidate_lookup = {c["id"]: c for c in candidates}
-
-    return [
-        {**candidate_lookup[cid], "rrf_score": score}
-        for cid, score in ranked[:top_n]
-        if cid in candidate_lookup
-    ]
-
-
-async def _compute_rrf(
-    queries: list[str],
-    candidates: list[dict],
-    kb_id: str,
-    k: int = 60,
-) -> dict[str, float]:
-    """Compute RRF fusion scores: Σ 1/(k + rank) across all retrieval lists."""
-    rrf: dict[str, float] = {c["id"]: 0.0 for c in candidates}
-    candidate_ids = set(rrf.keys())
-
-    for query in queries:
-        qv = await embed_single(query)
-        dense = vector_search(qv, kb_id, top_k=COARSE_RECALL_TOP_N)
-        sparse = bm25_search(kb_id, query, top_n=COARSE_RECALL_TOP_N)
-
-        for rank_list in [dense, sparse]:
+        for rank_list, weight in [(dense, 60), (sparse, 60)]:
             for rank, r in enumerate(rank_list, start=1):
                 cid = r.get("id", "")
-                if cid in candidate_ids:
-                    rrf[cid] += 1.0 / (k + rank)
+                if not cid:
+                    continue
+                if cid not in chunk_map:
+                    chunk_map[cid] = r
+                rrf[cid] = rrf.get(cid, 0) + 1.0 / (weight + rank)
 
-    return rrf
+    trace = {
+        "query_count": len(queries),
+        "dense_total": dense_total,
+        "sparse_total": sparse_total,
+        "unique_after_merge": len(chunk_map),
+        "note": f"每路 Top-{COARSE_RECALL_TOP_N}, RRF(k=60) 融合",
+    }
+
+    if not rrf:
+        return [], trace
+
+    ranked = sorted(rrf.items(), key=lambda x: x[1], reverse=True)
+    top_n = min(COARSE_RERANK_TOP_N, len(ranked))
+
+    candidates = [
+        {**chunk_map[cid], "rrf_score": round(score, 4)}
+        for cid, score in ranked[:top_n]
+        if cid in chunk_map
+    ]
+
+    return candidates, trace

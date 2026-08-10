@@ -69,6 +69,36 @@ def insert_chunks(chunks: list[dict]) -> list[str]:
     return result.get("ids", [])
 
 
+def get_all_chunks(kb_id: str = "") -> list[dict]:
+    """Get ALL chunks, optionally filtered by kb_id. Used to rebuild BM25."""
+    _ensure_collection()
+    filter_expr = f'kb_id == "{kb_id}"' if kb_id else 'id != ""'
+    results = _client.query(
+        collection_name=MILVUS_COLLECTION,
+        filter=filter_expr,
+        output_fields=[
+            "id", "doc_id", "kb_id", "doc_name", "header_path",
+            "page", "chunk_index", "total_chunks", "parent_id", "chunk_text",
+        ],
+        limit=100000,
+    )
+    return [
+        {
+            "id": r.get("id"),
+            "doc_id": r.get("doc_id", ""),
+            "kb_id": r.get("kb_id", ""),
+            "doc_name": r.get("doc_name", ""),
+            "header_path": r.get("header_path", ""),
+            "page": r.get("page", 0),
+            "chunk_index": r.get("chunk_index", 0),
+            "total_chunks": r.get("total_chunks", 0),
+            "parent_id": r.get("parent_id", ""),
+            "chunk_text": r.get("chunk_text", ""),
+        }
+        for r in results
+    ]
+
+
 def delete_by_doc_id(doc_id: str) -> int:
     """Delete all chunks of a document."""
     _ensure_collection()

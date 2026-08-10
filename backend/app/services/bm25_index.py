@@ -20,10 +20,32 @@ class BM25IndexManager:
     # ── Build ─────────────────────────────────────────────
 
     def build(self, kb_id: str, chunks: list[dict]) -> None:
-        """Build / rebuild BM25 index for a knowledge base."""
-        tokenized = [_tokenize(c["chunk_text"]) for c in chunks]
+        """Build / rebuild BM25 index for a knowledge base.
+
+        IMPORTANT: Merges with existing chunks (by chunk id) so uploading
+        a new document doesn't wipe the index of previous documents.
+        """
+        # Load existing chunks (from memory or disk)
+        existing: dict[str, dict] = {}
+        if kb_id in self._indexes:
+            _, old_chunks = self._indexes[kb_id]
+            for c in old_chunks:
+                existing[c["id"]] = c
+        else:
+            self._load(kb_id)
+            if kb_id in self._indexes:
+                _, old_chunks = self._indexes[kb_id]
+                for c in old_chunks:
+                    existing[c["id"]] = c
+
+        # Merge: new chunks overwrite old ones with same id (upsert)
+        for c in chunks:
+            existing[c["id"]] = c
+
+        merged = list(existing.values())
+        tokenized = [_tokenize(c["chunk_text"]) for c in merged]
         bm25 = BM25Okapi(tokenized)
-        self._indexes[kb_id] = (bm25, chunks)
+        self._indexes[kb_id] = (bm25, merged)
         self._save(kb_id)
 
     # ── Search ────────────────────────────────────────────

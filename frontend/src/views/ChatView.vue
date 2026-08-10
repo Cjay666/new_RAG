@@ -45,6 +45,16 @@
               {{ src.doc_name }}{{ src.header_path ? ' > ' + src.header_path : '' }}
             </span>
           </div>
+
+          <!-- Trace toggle button -->
+          <div v-if="msg.role === 'assistant' && msg.trace" style="margin-top:10px;">
+            <button class="btn btn-sm" @click="toggleTrace(i)" style="font-size:12px;">
+              {{ expandedTraces[i] ? '收起检索流程' : '查看检索流程' }}
+            </button>
+            <div v-if="expandedTraces[i]" class="trace-panel">
+              <TraceView :trace="msg.trace" />
+            </div>
+          </div>
         </div>
 
         <div v-if="loading" class="chat-message assistant">
@@ -82,20 +92,21 @@
 </template>
 
 <script setup>
-import { ref, nextTick, watch, onMounted } from 'vue'
+import { ref, reactive, nextTick, watch, onMounted } from 'vue'
 import { useAppStore } from '../stores/app.js'
 import { chatAPI } from '../api/index.js'
+import TraceView from '../components/TraceView.vue'
 
 const store = useAppStore()
 const question = ref('')
 const loading = ref(false)
 const lastSources = ref([])
 const chatContainer = ref(null)
+const expandedTraces = reactive({})
 
 onMounted(() => {
   if (store.activeKB) {
     store.loadSessions(store.activeKB)
-    // Restore last session from localStorage
     if (store.activeSession) {
       store.loadHistory(store.activeSession)
     }
@@ -111,6 +122,10 @@ async function newSession() {
 async function selectSession(sid) {
   store.setSession(sid)
   await store.loadHistory(sid)
+}
+
+function toggleTrace(i) {
+  expandedTraces[i] = !expandedTraces[i]
 }
 
 async function send() {
@@ -137,10 +152,16 @@ async function send() {
       role: 'assistant',
       content: data.answer,
       sources: data.sources,
+      trace: data.trace || null,
     })
     lastSources.value = data.sources || []
   } catch (e) {
-    store.messages.push({ role: 'assistant', content: '出错了: ' + (e.response?.data?.detail || e.message), sources: [] })
+    store.messages.push({
+      role: 'assistant',
+      content: '出错了: ' + (e.response?.data?.detail || e.message),
+      sources: [],
+      trace: null,
+    })
   }
 
   loading.value = false
@@ -177,5 +198,16 @@ watch(() => store.activeKB, (kbId) => {
 .active-session {
   border-left: 3px solid var(--c-accent);
   background: #e6f7ff;
+}
+.trace-panel {
+  margin-top: 10px;
+  border: 1px solid var(--c-border);
+  border-radius: 6px;
+  background: #fafafa;
+  padding: 14px 16px;
+  font-size: 12px;
+  line-height: 1.7;
+  max-height: 480px;
+  overflow-y: auto;
 }
 </style>

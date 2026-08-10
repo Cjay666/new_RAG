@@ -60,6 +60,7 @@ async def get_history(session_id: str):
             role=m["role"],
             content=m["content"],
             sources=m.get("sources"),
+            trace=m.get("trace"),
             timestamp=m["timestamp"],
         )
         for m in msgs
@@ -93,6 +94,7 @@ async def query(body: ChatRequest):
     sessions.add_message(
         body.session_id, "assistant", result["answer"],
         sources=[s.model_dump() for s in result["sources"]],
+        trace=result.get("trace"),
     )
 
     return ChatResponse(
@@ -100,6 +102,7 @@ async def query(body: ChatRequest):
         answer=result["answer"],
         sources=result["sources"],
         query_strategies_used=result["query_strategies_used"],
+        trace=result.get("trace"),
     )
 
 

@@ -52,16 +52,19 @@ class SessionStore:
         ]
 
     def add_message(self, session_id: str, role: str, content: str,
-                    sources: list | None = None) -> None:
+                    sources: list | None = None, trace: dict | None = None) -> None:
         session = self.get(session_id)
         if not session:
             return
-        session["messages"].append({
+        msg = {
             "role": role,
             "content": content,
             "sources": sources,
             "timestamp": datetime.now(timezone.utc).isoformat(),
-        })
+        }
+        if trace:
+            msg["trace"] = trace
+        session["messages"].append(msg)
         session["updated_at"] = datetime.now(timezone.utc).isoformat()
         # Auto-title from first user message
         if role == "user" and session["title"] == "新会话":
