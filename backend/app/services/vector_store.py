@@ -2,16 +2,13 @@
 
 from __future__ import annotations
 
-from pathlib import Path
-from typing import Optional
-
-from ..config import COARSE_RECALL_TOP_N, PROJECT_ROOT
+from ..config import COARSE_RECALL_TOP_N, UPLOAD_DIR
 from ..db import milvus_client as milvus
 from .bm25_index import BM25IndexManager
 from .embedding import embed_texts
 
-# Global BM25 manager (shared across requests)
-_bm25 = BM25IndexManager(Path(PROJECT_ROOT, "data", "bm25_indexes"))
+# Global BM25 manager — store inside Docker volume (same as uploads) so data survives rebuilds
+_bm25 = BM25IndexManager(UPLOAD_DIR.parent / "bm25_indexes")
 
 
 async def index_chunks(chunks: list[dict]) -> int:

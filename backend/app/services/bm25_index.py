@@ -106,16 +106,24 @@ class BM25IndexManager:
 
     def _rebuild_from_milvus(self, kb_id: str) -> None:
         """Lazy rebuild: read ALL chunks from Milvus and build BM25 from scratch."""
+        import sys
         try:
             from ..db.milvus_client import get_all_chunks
+            print(f"[BM25] Auto-rebuilding index for kb_id={kb_id} from Milvus...", file=sys.stderr, flush=True)
             all_chunks = get_all_chunks(kb_id)
+            print(f"[BM25] Got {len(all_chunks)} chunks from Milvus", file=sys.stderr, flush=True)
             if all_chunks:
                 tokenized = [_tokenize(c["chunk_text"]) for c in all_chunks]
                 bm25 = BM25Okapi(tokenized)
                 self._indexes[kb_id] = (bm25, all_chunks)
                 self._save(kb_id)
-        except Exception:
-            pass  # Silently skip — search will return []
+                print(f"[BM25] Saved index ({len(all_chunks)} chunks) to disk", file=sys.stderr, flush=True)
+            else:
+                print(f"[BM25] WARNING: No chunks found in Milvus for kb_id={kb_id}", file=sys.stderr, flush=True)
+        except Exception as e:
+            import traceback
+            print(f"[BM25] ERROR rebuilding {kb_id}: {e}", file=sys.stderr, flush=True)
+            traceback.print_exc(file=sys.stderr)
 
 
 # ── Helpers ───────────────────────────────────────────────
